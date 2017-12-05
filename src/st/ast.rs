@@ -24,7 +24,7 @@
 
 #[derive(Debug)]
 pub struct Project {
-    pous: Vec<POU>,
+    pub pous: Vec<POU>,
 }
 
 #[derive(Debug)]
@@ -33,6 +33,7 @@ pub struct POU(pub String, pub POUType);
 #[derive(Debug)]
 pub enum POUType {
     Globals {
+        constant: bool,
         vars: Vec<VarDef>,
     },
     Struct {

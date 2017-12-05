@@ -26,26 +26,10 @@
 extern crate byteorder;
 extern crate regex;
 extern crate lalrpop_util;
+extern crate encoding;
+extern crate walkdir;
+extern crate elementtree;
+#[macro_use] extern crate failure;
+#[macro_use] extern crate lazy_static;
 
 pub mod st;
-
-#[test]
-fn test_it() {
-    use std::io::*;
-    use std::fs;
-    let rx = regex::Regex::new(r"(?s)\(\*.*?\*\)").unwrap();
-
-    for file in fs::read_dir("exps").unwrap() {
-        let file = file.unwrap();
-        println!("{}", file.path().display());
-        let mut v = Vec::new();
-        fs::File::open(file.path()).unwrap().read_to_end(&mut v).unwrap();
-        let s = String::from_utf8_lossy(&v);
-        let s2 = rx.replace_all(&s, |cap: &regex::Captures| " ".repeat(cap[0].len()));
-        if let Err(e) = st::parse_file(&s2) {
-            println!("{}", e);
-        }
-        println!();
-    }
-    panic!("...");
-}

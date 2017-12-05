@@ -6,6 +6,11 @@ authors = ["Georg Brandl <georg@python.org>"]
 [dependencies]
 byteorder = "*"
 regex = "*"
+failure = "*"
+lazy_static = "*"
+encoding = "*"
+walkdir = "*"
+elementtree = "*"
 lalrpop = { path = "/home/gbr/devel/ext/lalrpop/lalrpop" }
 lalrpop-util = { path = "/home/gbr/devel/ext/lalrpop/lalrpop-util" }
 

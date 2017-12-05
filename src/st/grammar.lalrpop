@@ -4,7 +4,7 @@ use st::app;
 grammar;
 
 comma<T>: Vec<T> = {
-    <xs:(<T> ",")*> <x:T> => { let mut xs = xs; xs.push(x); xs },
+    <xs:(<T> ",")*> <x:T> => app(xs, x),
 };
 
 pub file: POU = {
@@ -16,8 +16,8 @@ pub file: POU = {
 };
 
 globals: POU = {
-    "VAR_GLOBAL" <vars:var_def+> "END_VAR" =>
-        POU("".into(), POUType::Globals { vars }),
+    "VAR_GLOBAL" <constant:"CONSTANT"?> <vars:var_def+> "END_VAR" =>
+        POU("".into(), POUType::Globals { vars, constant: constant.is_some() }),
 };
 
 typedef: POU = {
@@ -29,13 +29,13 @@ typedef: POU = {
 
 program: POU = {
     "PROGRAM" <name:ident>
-    <vars:("VAR" "RETAIN"? "PERSISTENT"? <var_def*> "END_VAR")?>
-    <body:stmt+> "END_PROGRAM" =>
-        POU(name, POUType::Program { body, vars: vars.unwrap_or(vec![]) }),
+    <vars:("VAR" "RETAIN"? "PERSISTENT"? <var_def*> "END_VAR")*>
+    <body:stmt+> "END_PROGRAM"? =>
+        POU(name, POUType::Program { body, vars: vars.into_iter().flat_map(|v| v).collect() }),
 };
 
 function_block: POU = {
-    "FUNCTION_BLOCK" <name:ident> <vars:fb_vars> <body:stmt+> "END_FUNCTION_BLOCK" =>
+    "FUNCTION_BLOCK" <name:ident> <vars:fb_vars> <body:stmt+> "END_FUNCTION_BLOCK"? =>
         POU(name, POUType::FBlock { body, vars }),
 };
 
@@ -125,7 +125,7 @@ literal_expr: Expr = {
     float => Expr::Lit(Lit::Float(<>)),
     "TRUE" => Expr::Lit(Lit::Bool(true)),
     "FALSE" => Expr::Lit(Lit::Bool(false)),
-    r"[tT]#[0-9]+(\.[0-9]+)?(ms|s|h|d)" => Expr::Lit(Lit::Time(<>.into())),
+    r"[tT]#[0-9]+(\.[0-9]+)?(ms|MS|s|S|h|H|d|D)" => Expr::Lit(Lit::Time(<>.into())),
     r"'([^']|'')*'" => Expr::Lit(Lit::Str(<>.into())),
 };
 
@@ -182,34 +182,31 @@ un_expr: Expr = {
 atom_expr: Expr = {
     call_expr,
     lval_expr,
-    literal_expr,
+    structinit_expr,
     "(" <expr> ")",
-    "(" <structinit> ")" => Expr::Initializer(<>),
-    "[" <comma<expr>> "]" => Expr::List(<>),
+    "(" <structinit> ")" => { let mut v = <>; v.reverse(); Expr::Initializer(v) },
 };
 
 structinit: Vec<(String, Expr)> = {
-    // TODO: could this use comma<> too?
-    <name:ident> ":=" <lits:(<literal_expr> ",")*> <lit:literal_expr> "," <more:structinit> => {
-        let mut more = more;
-        if lits.is_empty() {
-            more.insert(0, (name, lit));
+    <name:ident> ":=" <lits:(<structinit_expr> ",")*> <lit:structinit_expr> "," <more:structinit> => {
+        app(more, if lits.is_empty() {
+            (name, lit)
         } else {
-            let mut lits = lits;
-            lits.push(lit);
-            more.insert(0, (name, Expr::List(lits)));
-        }
-        more
+            (name, Expr::List(app(lits, lit)))
+        })
     },
-    <name:ident> ":=" <lits:(<literal_expr> ",")*> <lit:literal_expr> => {
+    <name:ident> ":=" <lits:(<structinit_expr> ",")*> <lit:structinit_expr> => {
         if lits.is_empty() {
             vec![(name, lit)]
         } else {
-            let mut lits = lits;
-            lits.push(lit);
-            vec![(name, Expr::List(lits))]
+            vec![(name, Expr::List(app(lits, lit)))]
         }
     },
+};
+
+structinit_expr: Expr = {
+    "[" <comma<expr>> "]" => Expr::List(<>),
+    literal_expr,
 };
 
 lval_expr: Expr = {
@@ -222,6 +219,7 @@ lval_expr: Expr = {
 call_expr: Expr = {
     <ident> "(" <comma<expr>> ")" => Expr::Call(<>),
     <ident> "(" <comma<argassign>> ")" => Expr::CallFB(<>),
+    <ident> "(" ")" => Expr::Call(<>, vec![]),
 };
 
 argassign: Kwarg = {
