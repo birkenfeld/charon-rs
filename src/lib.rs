@@ -25,11 +25,11 @@
 
 extern crate byteorder;
 extern crate regex;
-extern crate lalrpop_util;
 extern crate encoding;
 extern crate walkdir;
 extern crate elementtree;
-#[macro_use] extern crate failure;
-#[macro_use] extern crate lazy_static;
+extern crate failure;
+extern crate lazy_static;
+extern crate charon_parsers;
 
 pub mod st;

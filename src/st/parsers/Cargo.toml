@@ -1,0 +1,20 @@
+[package]
+name = "charon-parsers"
+version = "0.1.0"
+authors = ["Georg Brandl <georg@python.org>"]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+regex = "*"
+failure = "*"
+lazy_static = "*"
+encoding = "*"
+walkdir = "*"
+elementtree = "*"
+lalrpop = { git = "https://github.com/nikomatsakis/lalrpop" }
+lalrpop-util = { git = "https://github.com/nikomatsakis/lalrpop" }
+
+[build-dependencies]
+lalrpop = { git = "https://github.com/nikomatsakis/lalrpop" }

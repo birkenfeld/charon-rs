@@ -1,5 +1,7 @@
-use st::ast::*;
-use st::app;
+/// SHARED part
+
+use ast::*;
+use app;
 
 grammar;
 
@@ -179,36 +181,6 @@ un_expr: Expr = {
     atom_expr,
 };
 
-atom_expr: Expr = {
-    call_expr,
-    lval_expr,
-    structinit_expr,
-    "(" <expr> ")",
-    "(" <structinit> ")" => { let mut v = <>; v.reverse(); Expr::Initializer(v) },
-};
-
-structinit: Vec<(String, Expr)> = {
-    <name:ident> ":=" <lits:(<structinit_expr> ",")*> <lit:structinit_expr> "," <more:structinit> => {
-        app(more, if lits.is_empty() {
-            (name, lit)
-        } else {
-            (name, Expr::List(app(lits, lit)))
-        })
-    },
-    <name:ident> ":=" <lits:(<structinit_expr> ",")*> <lit:structinit_expr> => {
-        if lits.is_empty() {
-            vec![(name, lit)]
-        } else {
-            vec![(name, Expr::List(app(lits, lit)))]
-        }
-    },
-};
-
-structinit_expr: Expr = {
-    "[" <comma<expr>> "]" => Expr::List(<>),
-    literal_expr,
-};
-
 lval_expr: Expr = {
     <expr:lval_expr> "." <bit:decint> => Expr::Bit(box expr, bit as u16),
     <expr:lval_expr> "." <member:ident> => Expr::Member(box expr, member),
@@ -247,4 +219,31 @@ decint: i64 = {
 float: f64 = {
     r"-?[0-9]+\.[0-9]+([eE][-+]?[0-9]+)?" => <>.parse().unwrap(),
     r"-?[0-9]+[eE][-+]?[0-9]+"            => <>.parse().unwrap(),
+};
+
+/// TC2 specific part
+
+atom_expr: Expr = {
+    call_expr,
+    lval_expr,
+    literal_expr,
+    "(" <expr> ")",
+    "(" <structinit> ")" => { let mut v = <>; v.reverse(); Expr::Initializer(v) },
+};
+
+structinit: Vec<(String, Expr)> = {
+    <name:ident> ":=" <lits:(<literal_expr> ",")*> <lit:literal_expr> "," <more:structinit> => {
+        app(more, if lits.is_empty() {
+            (name, lit)
+        } else {
+            (name, Expr::List(app(lits, lit)))
+        })
+    },
+    <name:ident> ":=" <lits:(<literal_expr> ",")*> <lit:literal_expr> => {
+        if lits.is_empty() {
+            vec![(name, lit)]
+        } else {
+            vec![(name, Expr::List(app(lits, lit)))]
+        }
+    },
 };

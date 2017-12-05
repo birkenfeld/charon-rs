@@ -1,0 +1,237 @@
+/// SHARED part
+
+use ast::*;
+use app;
+
+grammar;
+
+comma<T>: Vec<T> = {
+    <xs:(<T> ",")*> <x:T> => app(xs, x),
+};
+
+pub file: POU = {
+    globals,
+    typedef,
+    program,
+    function_block,
+    function,
+};
+
+globals: POU = {
+    "VAR_GLOBAL" <constant:"CONSTANT"?> <vars:var_def+> "END_VAR" =>
+        POU("".into(), POUType::Globals { vars, constant: constant.is_some() }),
+};
+
+typedef: POU = {
+    "TYPE" <name:ident> ":" "STRUCT" <members:var_def+> "END_STRUCT" "END_TYPE" =>
+        POU(name, POUType::Struct { members }),
+    "TYPE" <name:ident> ":" <alias:type_> "END_TYPE" =>
+        POU(name, POUType::Typedef { alias }),
+};
+
+program: POU = {
+    "PROGRAM" <name:ident>
+    <vars:("VAR" "RETAIN"? "PERSISTENT"? <var_def*> "END_VAR")*>
+    <body:stmt+> "END_PROGRAM"? =>
+        POU(name, POUType::Program { body, vars: vars.into_iter().flat_map(|v| v).collect() }),
+};
+
+function_block: POU = {
+    "FUNCTION_BLOCK" <name:ident> <vars:fb_vars> <body:stmt+> "END_FUNCTION_BLOCK"? =>
+        POU(name, POUType::FBlock { body, vars }),
+};
+
+fb_vars: Vec<VarBlock> = {
+    <vs:fb_vars> "VAR_IN_OUT" <v:var_def*> "END_VAR" => app(vs, VarBlock(VarType::InOut, v)),
+    <vs:fb_vars> "VAR_INPUT"  <v:var_def*> "END_VAR" => app(vs, VarBlock(VarType::In, v)),
+    <vs:fb_vars> "VAR_OUTPUT" <v:var_def*> "END_VAR" => app(vs, VarBlock(VarType::Out, v)),
+    <vs:fb_vars> "VAR"        <v:var_def*> "END_VAR" => app(vs, VarBlock(VarType::Local, v)),
+    ! => vec![],
+};
+
+function: POU = {
+    "FUNCTION" <name:ident> ":" <rtype:type_> <vars:fun_vars> <body:stmt+> "END_FUNCTION" =>
+        POU(name, POUType::Function { rtype, body, vars }),
+};
+
+fun_vars: Vec<VarBlock> = {
+    <vs:fun_vars> "VAR_INPUT" <v:var_def*> "END_VAR" => app(vs, VarBlock(VarType::In, v)),
+    <vs:fun_vars> "VAR"       <v:var_def*> "END_VAR" => app(vs, VarBlock(VarType::Local, v)),
+    ! => vec![],
+};
+
+var_def: VarDef = {
+    <name:ident> <loc:("AT" <loc>)?> ":" <typ:type_> <default:(":=" <var_default>)?> ";" => VarDef { <> },
+};
+
+var_default: Expr = {
+    <exprs:comma<expr>> => {
+        if exprs.len() == 1 {
+            exprs.into_iter().next().unwrap()
+        } else {
+            Expr::List(exprs)
+        }
+    },
+};
+
+loc: String = {
+    r"%[MIQ][BWX]?(\*|[0-9]+)" => String::from(<>),
+};
+
+type_: Type = {
+    "ARRAY" "[" <l:integer> ".." <u:integer> "]" "OF" <inner:type_> =>
+        Type::Array(box inner, l.1, u.1),
+    "STRING" "[" <integer> "]" => Type::String(<>.1 as usize),
+    "STRING" => Type::String(80),
+    ident => Type::Simple(<>),
+};
+
+stmt: Stmt = {
+    "RETURN" ";" => Stmt::Exit,
+    "IF" <cond:expr> "THEN" <then:stmt+> <else_:if_else> =>
+        Stmt::If(box cond, then, else_),
+    "CASE" <head:expr> "OF" <cases:case+> <else_:case_else> =>
+        Stmt::Case(box head, cases, else_),
+    "WHILE" <cond:expr> "DO" <body:stmt+> "END_WHILE" =>
+        Stmt::While(box cond, body),
+    <lval:lval_expr> ":=" <rval:expr> ";" =>
+        Stmt::Assign(box lval, box rval),
+    <ident> ";" => Stmt::Expr(box Expr::CallFB(<>, vec![])),
+    <call_expr> ";" => Stmt::Expr(box <>),
+    ";" => Stmt::Empty,
+};
+
+if_else: Vec<Stmt> = {
+    "ELSIF" <cond:expr> "THEN" <then:stmt+> <else_:if_else> =>
+        vec![Stmt::If(box cond, then, else_)],
+    "ELSE" <stmt+> "END_IF",
+    "END_IF" => vec![],
+};
+
+case: Case = {
+    <comma<case_match>> ":" <stmt+> => Case(<>),
+};
+
+case_match: CaseExpr = {
+    <literal_expr> ".." <literal_expr> => CaseExpr::Range(<>),
+    literal_expr => CaseExpr::Single(<>),
+};
+
+case_else: Vec<Stmt> = {
+    "ELSE" <stmt+> "END_CASE",
+    "END_CASE" => vec![],
+};
+
+literal_expr: Expr = {
+    integer => Expr::Lit(Lit::Int(<>.0, <>.1)),
+    float => Expr::Lit(Lit::Float(<>)),
+    "TRUE" => Expr::Lit(Lit::Bool(true)),
+    "FALSE" => Expr::Lit(Lit::Bool(false)),
+    r"[tT]#[0-9]+(\.[0-9]+)?(ms|MS|s|S|h|H|d|D)" => Expr::Lit(Lit::Time(<>.into())),
+    r"'([^']|'')*'" => Expr::Lit(Lit::Str(<>.into())),
+};
+
+expr: Expr = {
+    <left:expr> "OR" <right:xor_expr> => Expr::Binary(box left, BinOp::Or, box right),
+    <left:expr> "OR_ELSE" <right:xor_expr> => Expr::Binary(box left, BinOp::Or, box right),
+    xor_expr,
+};
+
+xor_expr: Expr = {
+    <left:xor_expr> "XOR" <right:and_expr> => Expr::Binary(box left, BinOp::Xor, box right),
+    and_expr,
+};
+
+and_expr: Expr = {
+    <left:and_expr> "AND" <right:eq_expr> => Expr::Binary(box left, BinOp::And, box right),
+    <left:and_expr> "AND_THEN" <right:eq_expr> => Expr::Binary(box left, BinOp::And, box right),
+    eq_expr,
+};
+
+eq_expr: Expr = {
+    <left:comp_expr> "=" <right:comp_expr> => Expr::Binary(box left, BinOp::Eq, box right),
+    <left:comp_expr> "<>" <right:comp_expr> => Expr::Binary(box left, BinOp::Neq, box right),
+    comp_expr,
+};
+
+comp_expr: Expr = {
+    <left:sum_expr> ">" <right:sum_expr> => Expr::Binary(box left, BinOp::Gt, box right),
+    <left:sum_expr> "<" <right:sum_expr> => Expr::Binary(box left, BinOp::Lt, box right),
+    <left:sum_expr> ">=" <right:sum_expr> => Expr::Binary(box left, BinOp::Ge, box right),
+    <left:sum_expr> "<=" <right:sum_expr> => Expr::Binary(box left, BinOp::Le, box right),
+    sum_expr,
+};
+
+sum_expr: Expr = {
+    <left:sum_expr> "+" <right:prod_expr> => Expr::Binary(box left, BinOp::Add, box right),
+    <left:sum_expr> "-" <right:prod_expr> => Expr::Binary(box left, BinOp::Sub, box right),
+    prod_expr,
+};
+
+prod_expr: Expr = {
+    <left:prod_expr> "*" <right:un_expr> => Expr::Binary(box left, BinOp::Mul, box right),
+    <left:prod_expr> "/" <right:un_expr> => Expr::Binary(box left, BinOp::Div, box right),
+    <left:prod_expr> "MOD" <right:un_expr> => Expr::Binary(box left, BinOp::Mod, box right),
+    un_expr,
+};
+
+un_expr: Expr = {
+    "-" <expr:un_expr> => Expr::Unary(UnOp::Neg, box expr),
+    "NOT" <expr:un_expr> => Expr::Unary(UnOp::Neg, box expr),
+    atom_expr,
+};
+
+lval_expr: Expr = {
+    <expr:lval_expr> "." <bit:decint> => Expr::Bit(box expr, bit as u16),
+    <expr:lval_expr> "." <member:ident> => Expr::Member(box expr, member),
+    <expr:lval_expr> "[" <index:expr> "]" => Expr::Sub(box expr, box index),
+    <ident> => Expr::Name(<>),
+};
+
+call_expr: Expr = {
+    <ident> "(" <comma<expr>> ")" => Expr::Call(<>),
+    <ident> "(" <comma<argassign>> ")" => Expr::CallFB(<>),
+    <ident> "(" ")" => Expr::Call(<>, vec![]),
+};
+
+argassign: Kwarg = {
+    <ident> ":=" <expr> => Kwarg::In(<>),
+    <ident> ":="        => Kwarg::None(<>),
+    <ident> "=>" <expr> => Kwarg::Out(<>),
+    <ident> "=>"        => Kwarg::None(<>),
+};
+
+ident: String = {
+    r"[a-zA-Z_][a-zA-Z_0-9]*" => String::from(<>),
+};
+
+integer: (u16, i64) = {
+    r"16#-?[0-9a-fA-F]+" => (16, i64::from_str_radix(&<>[3..], 16).unwrap()),
+    r"8#-?[0-7]+"        => (8, i64::from_str_radix(&<>[2..], 8).unwrap()),
+    r"2#-?[01]+"         => (2, i64::from_str_radix(&<>[2..], 2).unwrap()),
+    decint               => (10, <>),
+};
+
+decint: i64 = {
+    r"[0-9]+" => <>.parse().unwrap(),
+};
+
+float: f64 = {
+    r"-?[0-9]+\.[0-9]+([eE][-+]?[0-9]+)?" => <>.parse().unwrap(),
+    r"-?[0-9]+[eE][-+]?[0-9]+"            => <>.parse().unwrap(),
+};
+
+/// TC3 specific part
+
+atom_expr: Expr = {
+    call_expr,
+    lval_expr,
+    literal_expr,
+    "(" <expr> ")",
+    "(" <comma<structinit>> ")" => Expr::Initializer(<>),
+    "[" <comma<expr>> "]" => Expr::List(<>),
+};
+
+structinit: (String, Expr) = {
+    <ident> ":=" <expr>,
+};

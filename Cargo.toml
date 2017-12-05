@@ -11,8 +11,5 @@ lazy_static = "*"
 encoding = "*"
 walkdir = "*"
 elementtree = "*"
-lalrpop = { path = "/home/gbr/devel/ext/lalrpop/lalrpop" }
-lalrpop-util = { path = "/home/gbr/devel/ext/lalrpop/lalrpop-util" }
 
-[build-dependencies]
-lalrpop = { path = "/home/gbr/devel/ext/lalrpop/lalrpop" }
+charon-parsers = { path = "src/st/parsers" }
