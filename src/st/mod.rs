@@ -21,6 +21,9 @@
 //
 // *****************************************************************************
 
+pub mod ast;
+pub mod runtime;
+
 pub use charon_parsers::{parse_tc2_project, parse_tc3_project};
 
 #[test]
